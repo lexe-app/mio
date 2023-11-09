@@ -125,3 +125,53 @@ fn other(s: &str) -> io::Error {
 fn would_block() -> io::Error {
     io::ErrorKind::WouldBlock.into()
 }
+
+// Interim solution until we mark the target types appropriately
+#[cfg(not(compiler_has_send_sgx_types))]
+mod make_send {
+    use {
+        async_usercalls::{ReadBuffer, WriteBuffer},
+        std::ops::{Deref, DerefMut},
+        std::os::fortanix_sgx::usercalls::alloc::User,
+    };
+
+    pub(crate) struct MakeSend<T>(T);
+
+    impl<T> MakeSend<T> {
+        pub fn new(t: T) -> Self {
+            Self(t)
+        }
+
+        #[allow(unused)]
+        pub fn into_inner(self) -> T {
+            self.0
+        }
+    }
+
+    impl<T> Deref for MakeSend<T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl<T> DerefMut for MakeSend<T> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.0
+        }
+    }
+
+    impl<T> From<T> for MakeSend<T> {
+        fn from(t: T) -> Self {
+            MakeSend::new(t)
+        }
+    }
+
+    unsafe impl Send for MakeSend<User<[u8]>> {}
+    unsafe impl Send for MakeSend<ReadBuffer> {}
+    unsafe impl Send for MakeSend<WriteBuffer> {}
+}
+
+#[cfg(not(compiler_has_send_sgx_types))]
+pub(crate) use make_send::MakeSend;
