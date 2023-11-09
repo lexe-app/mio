@@ -1,4 +1,4 @@
-#![cfg(not(target_os = "wasi"))]
+#![cfg(not(any(target_os = "wasi", target_env = "sgx")))]
 #![cfg(all(feature = "os-poll", feature = "net"))]
 
 use log::{debug, info};

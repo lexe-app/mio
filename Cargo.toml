@@ -62,6 +62,13 @@ features = [
 wasi = "0.11.0"
 libc = "0.2.149"
 
+[target.x86_64-fortanix-unknown-sgx.dependencies]
+async-usercalls = "0.5"
+crossbeam-channel = "0.5"
+
+[patch.crates-io]
+async-usercalls = { git = "https://github.com/fortanix/rust-sgx.git", branch = "master" }
+
 [dev-dependencies]
 env_logger = { version = "0.9.3", default-features = false }
 rand = "0.8"
@@ -97,3 +104,7 @@ required-features = ["os-poll", "net"]
 [[example]]
 name = "udp_server"
 required-features = ["os-poll", "net"]
+
+# set number of threads so tests can run properly
+[package.metadata.fortanix-sgx]
+threads = 100

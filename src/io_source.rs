@@ -3,6 +3,8 @@ use std::ops::{Deref, DerefMut};
 use std::os::unix::io::AsRawFd;
 #[cfg(target_os = "wasi")]
 use std::os::wasi::io::AsRawFd;
+#[cfg(target_env = "sgx")]
+use std::os::fortanix_sgx::io::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawSocket;
 #[cfg(debug_assertions)]
@@ -102,6 +104,7 @@ impl<T> IoSource<T> {
     /// [`deregister`] it.
     ///
     /// [`deregister`]: Registry::deregister
+    #[cfg(not(target_env = "sgx"))]
     pub fn into_inner(self) -> T {
         self.inner
     }
@@ -129,7 +132,7 @@ impl<T> DerefMut for IoSource<T> {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_env = "sgx"))]
 impl<T> event::Source for IoSource<T>
 where
     T: AsRawFd,

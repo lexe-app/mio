@@ -92,6 +92,10 @@ where
 }
 
 #[test]
+#[cfg_attr(
+    target_env = "sgx",
+    ignore = "set_ttl() is ineffective on SGX",
+)]
 fn set_get_ttl() {
     init();
 

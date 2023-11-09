@@ -3,18 +3,23 @@
 #![cfg(not(target_os = "wasi"))]
 #![cfg(all(feature = "os-poll", feature = "net"))]
 
+#[cfg(any(unix, windows))]
 use std::mem::size_of;
 use std::net::SocketAddr;
 use std::ops::BitOr;
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
+#[cfg(unix)]
 use std::path::PathBuf;
 use std::sync::Once;
 use std::time::Duration;
-use std::{env, fmt, fs, io};
+#[cfg(unix)]
+use std::{env, fs};
+use std::{fmt, io};
 
 use log::{error, warn};
 use mio::event::Event;
+#[cfg(any(unix, windows))]
 use mio::net::TcpStream;
 use mio::{Events, Interest, Poll, Token};
 
@@ -24,10 +29,13 @@ pub fn init() {
     INIT.call_once(|| {
         env_logger::try_init().expect("unable to initialise logger");
 
-        // Remove all temporary files from previous test runs.
-        let dir = temp_dir();
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).expect("unable to create temporary directory");
+        #[cfg(unix)]
+        {
+            // Remove all temporary files from previous test runs.
+            let dir = temp_dir();
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).expect("unable to create temporary directory");
+        }
     })
 }
 
@@ -214,6 +222,11 @@ pub fn assert_socket_non_blocking<S>(_: &S) {
     // No way to get this information...
 }
 
+#[cfg(target_env = "sgx")]
+pub fn assert_socket_non_blocking<S>(_: &S) {
+    // Does not apply to SGX async model
+}
+
 /// Assert that `CLOEXEC` is set on `socket`.
 #[cfg(unix)]
 pub fn assert_socket_close_on_exec<S>(socket: &S)
@@ -227,6 +240,11 @@ where
 #[cfg(windows)]
 pub fn assert_socket_close_on_exec<S>(_: &S) {
     // Windows doesn't have this concept.
+}
+
+#[cfg(target_env = "sgx")]
+pub fn assert_socket_close_on_exec<S>(_: &S) {
+    // Does not apply to SGX async model
 }
 
 /// Bind to any port on localhost.
@@ -299,6 +317,7 @@ pub fn set_linger_zero(socket: &TcpStream) {
 }
 
 /// Returns a path to a temporary file using `name` as filename.
+#[cfg(unix)]
 pub fn temp_file(name: &'static str) -> PathBuf {
     let mut path = temp_dir();
     path.push(name);
@@ -306,6 +325,7 @@ pub fn temp_file(name: &'static str) -> PathBuf {
 }
 
 /// Returns the temporary directory for Mio test files.
+#[cfg(unix)]
 fn temp_dir() -> PathBuf {
     let mut path = env::temp_dir();
     path.push("mio_tests");

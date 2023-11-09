@@ -1,5 +1,8 @@
 use std::fmt;
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
+#[cfg(target_env = "sgx")]
+use crate::sys::tcp::net::{self, Shutdown, SocketAddr};
+#[cfg(not(target_env = "sgx"))]
 use std::net::{self, Shutdown, SocketAddr};
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
@@ -9,9 +12,11 @@ use std::os::wasi::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::os::windows::io::{AsRawSocket, FromRawSocket, IntoRawSocket, RawSocket};
 
 use crate::io_source::IoSource;
-#[cfg(not(target_os = "wasi"))]
+#[cfg(not(any(target_os = "wasi", target_env = "sgx")))]
 use crate::sys::tcp::{connect, new_for_addr};
 use crate::{event, Interest, Registry, Token};
+#[cfg(target_env = "sgx")]
+use crate::sys;
 
 /// A non-blocking TCP stream between a local socket and a remote socket.
 ///
@@ -50,6 +55,13 @@ pub struct TcpStream {
 }
 
 impl TcpStream {
+    #[cfg(target_env = "sgx")]
+    pub(crate) fn internal_new(stream: sys::tcp::TcpStream) -> TcpStream {
+        TcpStream {
+            inner: IoSource::new(stream),
+        }
+    }
+
     /// Create a new TCP stream and issue a non-blocking connect to the
     /// specified address.
     ///
@@ -82,13 +94,26 @@ impl TcpStream {
     /// [write interest]: Interest::WRITABLE
     #[cfg(not(target_os = "wasi"))]
     pub fn connect(addr: SocketAddr) -> io::Result<TcpStream> {
-        let socket = new_for_addr(addr)?;
-        #[cfg(unix)]
-        let stream = unsafe { TcpStream::from_raw_fd(socket) };
-        #[cfg(windows)]
-        let stream = unsafe { TcpStream::from_raw_socket(socket as _) };
-        connect(&stream.inner, addr)?;
-        Ok(stream)
+        #[cfg(not(target_env = "sgx"))] {
+            let socket = new_for_addr(addr)?;
+            #[cfg(unix)]
+            let stream = unsafe { TcpStream::from_raw_fd(socket) };
+            #[cfg(windows)]
+            let stream = unsafe { TcpStream::from_raw_socket(socket as _) };
+            connect(&stream.inner, addr)?;
+            Ok(stream)
+        }
+
+        #[cfg(target_env = "sgx")] {
+            sys::tcp::connect(addr).map(TcpStream::internal_new)
+        }
+    }
+
+    /// Create a new TCP stream and issue a non-blocking connect to the
+    /// specified address.
+    #[cfg(target_env = "sgx")]
+    pub fn connect_str(addr: &str) -> io::Result<TcpStream> {
+        sys::tcp::connect_str(addr).map(TcpStream::internal_new)
     }
 
     /// Creates a new `TcpStream` from a standard `net::TcpStream`.
@@ -103,7 +128,10 @@ impl TcpStream {
     /// The TCP stream here will not have `connect` called on it, so it
     /// should already be connected via some other means (be it manually, or
     /// the standard library).
-    pub fn from_std(stream: net::TcpStream) -> TcpStream {
+    pub fn from_std(stream: std::net::TcpStream) -> TcpStream {
+        #[cfg(target_env = "sgx")]
+        let stream: sys::tcp::TcpStream = stream.into();
+
         TcpStream {
             inner: IoSource::new(stream),
         }

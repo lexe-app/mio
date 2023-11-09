@@ -1,3 +1,5 @@
+#![cfg_attr(target_env = "sgx", feature(sgx_platform))]
+
 // You can run this example from the root of the mio repo:
 // cargo run --example tcp_listenfd_server --features="os-poll net"
 // or with wasi:
@@ -23,7 +25,12 @@ fn get_first_listen_fd_listener() -> Option<std::net::TcpListener> {
     use std::os::unix::io::FromRawFd;
     #[cfg(target_os = "wasi")]
     use std::os::wasi::io::FromRawFd;
+    #[cfg(target_env = "sgx")]
+    use std::os::fortanix_sgx::io::FromRawFd;
 
+    #[cfg(target_env = "sgx")]
+    let stdlistener = unsafe { std::net::TcpListener::from_raw_fd(3, Default::default()) };
+    #[cfg(not(target_env = "sgx"))]
     let stdlistener = unsafe { std::net::TcpListener::from_raw_fd(3) };
     stdlistener.set_nonblocking(true).unwrap();
     Some(stdlistener)

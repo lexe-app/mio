@@ -14,13 +14,15 @@ use mio::{Interest, Token};
 
 #[macro_use]
 mod util;
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_env = "sgx")))]
 use util::init;
 use util::{
     any_local_address, any_local_ipv6_address, assert_send, assert_socket_close_on_exec,
     assert_socket_non_blocking, assert_sync, assert_would_block, expect_events, expect_no_events,
-    init_with_poll, set_linger_zero, ExpectEvent, Readiness,
+    init_with_poll, ExpectEvent, Readiness,
 };
+#[cfg(not(target_env = "sgx"))]
+use util::set_linger_zero;
 
 const DATA1: &[u8] = b"Hello world!";
 const DATA2: &[u8] = b"Hello mars!";
@@ -81,6 +83,7 @@ where
     );
 
     let mut buf = [0; 16];
+    #[cfg(not(target_env = "sgx"))] // peek always returns Ok(0) in SGX.
     assert_would_block(stream.peek(&mut buf));
     assert_would_block(stream.read(&mut buf));
 
@@ -99,6 +102,7 @@ where
         vec![ExpectEvent::new(ID1, Interest::READABLE)],
     );
 
+    #[cfg(not(target_env = "sgx"))] // peek always returns Ok(0) in SGX.
     expect_read!(stream.peek(&mut buf), DATA1);
     expect_read!(stream.read(&mut buf), DATA1);
 
@@ -135,6 +139,10 @@ where
 }
 
 #[test]
+#[cfg_attr(
+    target_env = "sgx",
+    ignore = "set_ttl() is ineffective on SGX",
+)]
 fn set_get_ttl() {
     let (mut poll, mut events) = init_with_poll();
 
@@ -197,6 +205,10 @@ fn get_ttl_without_previous_set() {
 }
 
 #[test]
+#[cfg_attr(
+    target_env = "sgx",
+    ignore = "set_nodelay() is ineffective on SGX",
+)]
 fn set_get_nodelay() {
     let (mut poll, mut events) = init_with_poll();
 
@@ -351,6 +363,10 @@ fn shutdown_write() {
 }
 
 #[test]
+#[cfg_attr(
+    target_env = "sgx",
+    ignore = "shutdown is ineffective on SGX",
+)]
 fn shutdown_both() {
     let (mut poll, mut events) = init_with_poll();
 
@@ -395,6 +411,7 @@ fn shutdown_both() {
         expect_read!(stream.read(&mut buf), &[]);
     }
 
+    #[cfg_attr(not(any(unix, windows)), allow(unused_variables))]
     let err = stream.write(DATA2).unwrap_err();
     #[cfg(unix)]
     assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
@@ -497,6 +514,7 @@ fn no_events_after_deregister() {
 
     // Also, write should work
     let mut buf = [0; 16];
+    #[cfg(not(target_env = "sgx"))] // peek always returns Ok(0) in SGX.
     assert_would_block(stream.peek(&mut buf));
     assert_would_block(stream.read(&mut buf));
 
@@ -510,6 +528,10 @@ fn no_events_after_deregister() {
 }
 
 #[test]
+#[cfg_attr(
+    target_env = "sgx",
+    ignore = "shutdown is ineffective on SGX",
+)]
 #[cfg_attr(
     windows,
     ignore = "fails on Windows; client read closed events are not triggered"
@@ -556,6 +578,10 @@ fn tcp_shutdown_client_read_close_event() {
     ),
     ignore = "fails; client write_closed events are not found"
 )]
+#[cfg_attr(
+    target_env = "sgx",
+    ignore = "shutdown is ineffective on SGX",
+)]
 fn tcp_shutdown_client_write_close_event() {
     let (mut poll, mut events) = init_with_poll();
     let barrier = Arc::new(Barrier::new(2));
@@ -588,6 +614,7 @@ fn tcp_shutdown_client_write_close_event() {
 
 #[test]
 #[cfg_attr(target_os = "solaris", ignore = "POLLRDHUP isn't supported on Solaris")]
+#[cfg_attr(target_env = "sgx", ignore = "shutdown is ineffective on SGX")]
 fn tcp_shutdown_server_write_close_event() {
     let (mut poll, mut events) = init_with_poll();
     let barrier = Arc::new(Barrier::new(2));
@@ -669,6 +696,10 @@ fn tcp_reset_close_event() {
 #[cfg_attr(
     any(target_os = "illumos", target_os = "solaris"),
     ignore = "fails; client write_closed events are not found"
+)]
+#[cfg_attr(
+    target_env = "sgx",
+    ignore = "shutdown is ineffective on SGX",
 )]
 fn tcp_shutdown_client_both_close_event() {
     let (mut poll, mut events) = init_with_poll();
@@ -763,6 +794,7 @@ fn start_listener(
     (thread_handle, receiver.recv().unwrap())
 }
 
+#[cfg(not(target_env = "sgx"))] // no TcpSocket in SGX
 #[test]
 fn hup_event_on_disconnect() {
     use mio::net::TcpListener;

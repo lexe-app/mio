@@ -1,3 +1,6 @@
+#[cfg(target_env = "sgx")]
+use crate::sys::tcp::net::{self, SocketAddr};
+#[cfg(not(target_env = "sgx"))]
 use std::net::{self, SocketAddr};
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
@@ -11,7 +14,7 @@ use crate::io_source::IoSource;
 use crate::net::TcpStream;
 #[cfg(unix)]
 use crate::sys::tcp::set_reuseaddr;
-#[cfg(not(target_os = "wasi"))]
+#[cfg(not(any(target_os = "wasi", target_env = "sgx")))]
 use crate::sys::tcp::{bind, listen, new_for_addr};
 use crate::{event, sys, Interest, Registry, Token};
 
@@ -57,25 +60,42 @@ impl TcpListener {
     /// 4. Calls `listen` on the socket to prepare it to receive new connections.
     #[cfg(not(target_os = "wasi"))]
     pub fn bind(addr: SocketAddr) -> io::Result<TcpListener> {
-        let socket = new_for_addr(addr)?;
-        #[cfg(unix)]
-        let listener = unsafe { TcpListener::from_raw_fd(socket) };
-        #[cfg(windows)]
-        let listener = unsafe { TcpListener::from_raw_socket(socket as _) };
+        #[cfg(not(target_env = "sgx"))] {
+            let socket = new_for_addr(addr)?;
+            #[cfg(unix)]
+            let listener = unsafe { TcpListener::from_raw_fd(socket) };
+            #[cfg(windows)]
+            let listener = unsafe { TcpListener::from_raw_socket(socket as _) };
 
-        // On platforms with Berkeley-derived sockets, this allows to quickly
-        // rebind a socket, without needing to wait for the OS to clean up the
-        // previous one.
-        //
-        // On Windows, this allows rebinding sockets which are actively in use,
-        // which allows “socket hijacking”, so we explicitly don't set it here.
-        // https://docs.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse
-        #[cfg(not(windows))]
-        set_reuseaddr(&listener.inner, true)?;
+            // On platforms with Berkeley-derived sockets, this allows to quickly
+            // rebind a socket, without needing to wait for the OS to clean up the
+            // previous one.
+            //
+            // On Windows, this allows rebinding sockets which are actively in use,
+            // which allows “socket hijacking”, so we explicitly don't set it here.
+            // https://docs.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse
+            #[cfg(not(windows))]
+            set_reuseaddr(&listener.inner, true)?;
 
-        bind(&listener.inner, addr)?;
-        listen(&listener.inner, 1024)?;
-        Ok(listener)
+            bind(&listener.inner, addr)?;
+            listen(&listener.inner, 1024)?;
+            Ok(listener)
+        }
+
+        #[cfg(target_env = "sgx")] {
+            Ok(TcpListener {
+                inner: IoSource::new(sys::tcp::bind(addr)?),
+            })
+        }
+    }
+
+    /// Convenience method to bind a new TCP listener to the specified address
+    /// to receive new connections.
+    #[cfg(target_env = "sgx")]
+    pub fn bind_str(addr: &str) -> io::Result<TcpListener> {
+        Ok(TcpListener {
+            inner: IoSource::new(sys::tcp::bind_str(addr)?),
+        })
     }
 
     /// Creates a new `TcpListener` from a standard `net::TcpListener`.
@@ -84,9 +104,9 @@ impl TcpListener {
     /// standard library in the Mio equivalent. The conversion assumes nothing
     /// about the underlying listener; ; it is left up to the user to set it
     /// in non-blocking mode.
-    pub fn from_std(listener: net::TcpListener) -> TcpListener {
+    pub fn from_std(listener: std::net::TcpListener) -> TcpListener {
         TcpListener {
-            inner: IoSource::new(listener),
+            inner: IoSource::new(listener.into()),
         }
     }
 
@@ -100,7 +120,13 @@ impl TcpListener {
     /// returned along with it.
     pub fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
         self.inner.do_io(|inner| {
-            sys::tcp::accept(inner).map(|(stream, addr)| (TcpStream::from_std(stream), addr))
+            sys::tcp::accept(inner).map(|(stream, addr)| {
+                #[cfg(target_env = "sgx")]
+                let stream = TcpStream::internal_new(stream);
+                #[cfg(not(target_env = "sgx"))]
+                let stream = TcpStream::from_std(stream);
+                (stream, addr)
+            })
         })
     }
 
