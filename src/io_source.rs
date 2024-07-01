@@ -104,7 +104,6 @@ impl<T> IoSource<T> {
     /// [`deregister`] it.
     ///
     /// [`deregister`]: Registry::deregister
-    #[cfg(not(target_env = "sgx"))]
     pub fn into_inner(self) -> T {
         self.inner
     }

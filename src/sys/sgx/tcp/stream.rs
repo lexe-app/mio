@@ -70,6 +70,16 @@ impl TcpStream {
         (stream, peer_addr)
     }
 
+    /// (lexe)
+    /// We can convert into a `std::net::TcpStream` only when the socket is
+    /// connected.
+    pub(crate) fn try_into_std(self) -> io::Result<net::TcpStream> {
+        match &self.inner().connect_state.as_ready() {
+            Some(stream) => stream.try_clone(),
+            None => Err(io::ErrorKind::NotConnected.into()),
+        }
+    }
+
     pub fn connect(addr: SocketAddr) -> io::Result<TcpStream> {
         Ok(TcpStream::new(State::New(addr.to_string())))
     }

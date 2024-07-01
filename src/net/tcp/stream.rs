@@ -116,6 +116,14 @@ impl TcpStream {
         sys::tcp::connect_str(addr).map(TcpStream::internal_new)
     }
 
+    /// (lexe)
+    /// Try to convert a `mio::TcpStream` into a `std::net::TcpStream`. Will
+    /// return an error if the stream is not yet connected.
+    #[cfg(target_env = "sgx")]
+    pub fn try_into_std(self) -> io::Result<std::net::TcpStream> {
+        self.inner.into_inner().try_into_std()
+    }
+
     /// Creates a new `TcpStream` from a standard `net::TcpStream`.
     ///
     /// This function is intended to be used to wrap a TCP stream from the
@@ -129,11 +137,8 @@ impl TcpStream {
     /// should already be connected via some other means (be it manually, or
     /// the standard library).
     pub fn from_std(stream: std::net::TcpStream) -> TcpStream {
-        #[cfg(target_env = "sgx")]
-        let stream: sys::tcp::TcpStream = stream.into();
-
         TcpStream {
-            inner: IoSource::new(stream),
+            inner: IoSource::new(stream.into()),
         }
     }
 
