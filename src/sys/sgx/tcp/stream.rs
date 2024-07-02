@@ -7,8 +7,6 @@ use std::os::fortanix_sgx::io::AsRawFd;
 use std::os::fortanix_sgx::usercalls::alloc::User;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-#[cfg(not(compiler_has_send_sgx_types))]
-use super::MakeSend;
 use super::{other, would_block, State};
 use crate::sys::sgx::selector::{EventKind, Provider, Registration};
 use crate::{event, Interest, Registry, Token};
@@ -26,19 +24,10 @@ struct StreamImp(Arc<Mutex<StreamInner>>);
 
 struct StreamInner {
     connect_state: State<String, Option<CancelHandle>, net::TcpStream>,
-    #[cfg(compiler_has_send_sgx_types)]
     write_buffer: WriteBuffer,
-    #[cfg(not(compiler_has_send_sgx_types))]
-    write_buffer: MakeSend<WriteBuffer>,
     write_state: State<(), Option<CancelHandle>, ()>,
-    #[cfg(compiler_has_send_sgx_types)]
     read_buf: Option<User<[u8]>>,
-    #[cfg(not(compiler_has_send_sgx_types))]
-    read_buf: Option<MakeSend<User<[u8]>>>,
-    #[cfg(compiler_has_send_sgx_types)]
     read_state: State<(), Option<CancelHandle>, ReadBuffer>,
-    #[cfg(not(compiler_has_send_sgx_types))]
-    read_state: State<(), Option<CancelHandle>, MakeSend<ReadBuffer>>,
     registration: Option<Registration>,
     provider: Option<Provider>,
 }
@@ -48,15 +37,9 @@ impl TcpStream {
         TcpStream {
             imp: StreamImp(Arc::new(Mutex::new(StreamInner {
                 connect_state,
-                #[cfg(compiler_has_send_sgx_types)]
                 write_buffer: WriteBuffer::new(User::<[u8]>::uninitialized(WRITE_BUFFER_SIZE)),
-                #[cfg(not(compiler_has_send_sgx_types))]
-                write_buffer: MakeSend::new(WriteBuffer::new(User::<[u8]>::uninitialized(WRITE_BUFFER_SIZE))),
                 write_state: State::New(()),
-                #[cfg(compiler_has_send_sgx_types)]
                 read_buf: Some(User::<[u8]>::uninitialized(READ_BUFFER_SIZE)),
-                #[cfg(not(compiler_has_send_sgx_types))]
-                read_buf: Some(MakeSend::new(User::<[u8]>::uninitialized(READ_BUFFER_SIZE))),
                 read_state: State::New(()),
                 registration: None,
                 provider: None,
@@ -203,8 +186,6 @@ impl StreamImp {
             _ => return,
         };
         let read_buf = inner.read_buf.take().unwrap();
-        #[cfg(not(compiler_has_send_sgx_types))]
-        let read_buf = read_buf.into_inner();
         let weak_ref = Arc::downgrade(&self.0);
         let cancel_handle = provider.read(fd, read_buf, move |res, read_buf| {
             let imp = match weak_ref.upgrade() {
@@ -215,7 +196,7 @@ impl StreamImp {
             assert!(inner.read_state.is_pending());
             match res {
                 Ok(len) => {
-                    inner.read_state = State::Ready(ReadBuffer::new(read_buf, len).into());
+                    inner.read_state = State::Ready(ReadBuffer::new(read_buf, len));
                     inner.push_event(if len == 0 {
                         EventKind::ReadClosed
                     } else {
@@ -225,7 +206,7 @@ impl StreamImp {
                 Err(e) => {
                     let is_closed = is_connection_closed(&e);
                     inner.read_state = State::Error(e);
-                    inner.read_buf = Some(read_buf.into());
+                    inner.read_buf = Some(read_buf);
                     inner.push_event(if is_closed {
                         EventKind::ReadClosed
                     } else {
@@ -290,29 +271,18 @@ impl StreamImp {
                 inner.read_state = State::Pending(cancel_handle);
                 return Err(would_block());
             }
-            #[cfg_attr(not(compiler_has_send_sgx_types), allow(unused_mut))]
-            State::Ready(mut read_buf) => {
-                #[cfg(not(compiler_has_send_sgx_types))]
-                let mut read_buf = read_buf.into_inner();
+            State::Ready(read_buf) => {
+                let mut read_buf = read_buf;
                 let mut r = 0;
                 for buf in bufs {
                     r += read_buf.read(buf);
                 }
-                #[cfg(compiler_has_send_sgx_types)]
                 match read_buf.remaining_bytes() {
                     // Only schedule another read if the previous one returned some bytes.
                     // Otherwise assume subsequent reads will always return 0 bytes, so just
                     // stay at Ready state and always return 0 bytes from this point on.
                     0 if read_buf.len() > 0 => inner.read_buf = Some(read_buf.into_inner()),
                     _ => inner.read_state = State::Ready(read_buf),
-                }
-                #[cfg(not(compiler_has_send_sgx_types))]
-                match read_buf.remaining_bytes() {
-                    // Only schedule another read if the previous one returned some bytes.
-                    // Otherwise assume subsequent reads will always return 0 bytes, so just
-                    // stay at Ready state and always return 0 bytes from this point on.
-                    0 if read_buf.len() > 0 => inner.read_buf = Some(MakeSend::new(read_buf.into_inner())),
-                    _ => inner.read_state = State::Ready(MakeSend::new(read_buf)),
                 }
                 Ok(r)
             }
