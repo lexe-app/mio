@@ -5,14 +5,11 @@ event notification for building high performance I/O apps with as little
 overhead as possible over the OS abstractions.
 
 [![Crates.io][crates-badge]][crates-url]
-[![MIT licensed][mit-badge]][mit-url]
 [![Build Status][actions-badge]][actions-url]
 [![Build Status][cirrus-badge]][cirrus-url]
 
 [crates-badge]: https://img.shields.io/crates/v/mio.svg
 [crates-url]: https://crates.io/crates/mio
-[mit-badge]: https://img.shields.io/badge/license-MIT-blue.svg
-[mit-url]: LICENSE
 [actions-badge]: https://github.com/tokio-rs/mio/workflows/CI/badge.svg
 [actions-url]: https://github.com/tokio-rs/mio/actions?query=workflow%3ACI+branch%3Amaster
 [cirrus-badge]: https://api.cirrus-ci.com/github/tokio-rs/mio.svg
